@@ -7,6 +7,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/SiriusScan/go-api/sirius/queue"
 )
@@ -23,27 +24,45 @@ type Manager struct {
 	cancel context.CancelFunc
 	ps     *PowerShell
 	mu     sync.Mutex // Protects PowerShell instance
+	logger *LoggingClient // Centralized logging client
 }
 
 func NewManager() (*Manager, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Initialize logging client
+	logger := NewLoggingClient()
+	logger.LogServiceLifecycle("initializing", map[string]interface{}{
+		"service": "sirius-terminal",
+	})
+
 	// Initialize PowerShell
 	ps, err := NewPowerShell()
 	if err != nil {
 		cancel()
+		logger.LogPowerShellInitialization(false, map[string]interface{}{
+			"error": err.Error(),
+		})
 		return nil, fmt.Errorf("failed to initialize PowerShell: %v", err)
 	}
+
+	logger.LogPowerShellInitialization(true, map[string]interface{}{
+		"powershell_available": true,
+	})
 
 	return &Manager{
 		ctx:    ctx,
 		cancel: cancel,
 		ps:     ps,
+		logger: logger,
 	}, nil
 }
 
 func (m *Manager) ListenForCommands() {
 	log.Println("Starting command listener...")
+	m.logger.LogServiceLifecycle("listening_for_commands", map[string]interface{}{
+		"queue_name": "terminal",
+	})
 	queue.Listen("terminal", m.handleCommand)
 }
 
@@ -51,6 +70,7 @@ func (m *Manager) handleCommand(msg string) {
 	var cmd Command
 	if err := json.Unmarshal([]byte(msg), &cmd); err != nil {
 		log.Printf("Failed to parse command: %v", err)
+		m.logger.LogTerminalError("", "", "PARSE_ERROR", "Failed to parse command message", err)
 		return
 	}
 
@@ -59,16 +79,40 @@ func (m *Manager) handleCommand(msg string) {
 		if cmd.ResponseQueue != "" {
 			if err := queue.Send(cmd.ResponseQueue, "Connected"); err != nil {
 				log.Printf("Failed to send connection confirmation: %v", err)
+				m.logger.LogQueueOperation("send_connection_confirmation", cmd.ResponseQueue, false, map[string]interface{}{
+					"error": err.Error(),
+				})
+			} else {
+				m.logger.LogQueueOperation("send_connection_confirmation", cmd.ResponseQueue, true, map[string]interface{}{
+					"message": "Connected",
+				})
 			}
 		}
 		return
 	}
+
+	// Log command received
+	m.logger.LogTerminalEvent("command_received", fmt.Sprintf("Command received from user %s", cmd.UserID), map[string]interface{}{
+		"user_id":        cmd.UserID,
+		"command":        cmd.Command,
+		"response_queue": cmd.ResponseQueue,
+		"timestamp":      cmd.Timestamp,
+	})
 
 	response := m.executeCommand(cmd)
 
 	if cmd.ResponseQueue != "" {
 		if err := queue.Send(cmd.ResponseQueue, response); err != nil {
 			log.Printf("Failed to send response: %v", err)
+			m.logger.LogQueueOperation("send_response", cmd.ResponseQueue, false, map[string]interface{}{
+				"user_id": cmd.UserID,
+				"error":   err.Error(),
+			})
+		} else {
+			m.logger.LogQueueOperation("send_response", cmd.ResponseQueue, true, map[string]interface{}{
+				"user_id":        cmd.UserID,
+				"response_length": len(response),
+			})
 		}
 	}
 }
@@ -77,8 +121,12 @@ func (m *Manager) executeCommand(cmd Command) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	startTime := time.Now()
+
 	if m.ps == nil {
-		return "Error: PowerShell session not initialized"
+		errorMsg := "Error: PowerShell session not initialized"
+		m.logger.LogTerminalError(cmd.UserID, cmd.Command, "POWERSHELL_NOT_INITIALIZED", "PowerShell session not initialized", fmt.Errorf("PowerShell session is nil"))
+		return errorMsg
 	}
 
 	// Format table output commands
@@ -90,15 +138,30 @@ func (m *Manager) executeCommand(cmd Command) string {
 	}
 
 	output, err := m.ps.Execute(command)
+	duration := time.Since(startTime)
+
 	if err != nil {
 		log.Printf("Failed to execute command: %v", err)
-		return fmt.Sprintf("Error executing command: %v", err)
+		errorMsg := fmt.Sprintf("Error executing command: %v", err)
+		m.logger.LogCommandExecution(cmd.UserID, cmd.Command, duration, false, len(errorMsg), map[string]interface{}{
+			"error": err.Error(),
+		})
+		return errorMsg
 	}
+
+	// Log successful command execution
+	m.logger.LogCommandExecution(cmd.UserID, cmd.Command, duration, true, len(output), map[string]interface{}{
+		"formatted_command": command != cmd.Command,
+		"output_length":     len(output),
+	})
 
 	return output
 }
 
 func (m *Manager) Shutdown() {
 	log.Println("Shutting down terminal manager...")
+	m.logger.LogServiceLifecycle("shutting_down", map[string]interface{}{
+		"service": "sirius-terminal",
+	})
 	m.cancel()
 }

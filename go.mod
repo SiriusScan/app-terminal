@@ -7,6 +7,6 @@ toolchain go1.24.4
 replace github.com/SiriusScan/go-api => ../go-api
 
 require (
-	github.com/SiriusScan/go-api v0.0.4
+	github.com/SiriusScan/go-api v0.0.8
 	github.com/streadway/amqp v1.1.0
 )
