@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -23,7 +23,7 @@ type Manager struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	ps     *PowerShell
-	mu     sync.Mutex // Protects PowerShell instance
+	mu     sync.Mutex     // Protects PowerShell instance
 	logger *LoggingClient // Centralized logging client
 }
 
@@ -59,7 +59,7 @@ func NewManager() (*Manager, error) {
 }
 
 func (m *Manager) ListenForCommands() {
-	log.Println("Starting command listener...")
+	slog.Info("starting command listener")
 	m.logger.LogServiceLifecycle("listening_for_commands", map[string]interface{}{
 		"queue_name": "terminal",
 	})
@@ -69,7 +69,7 @@ func (m *Manager) ListenForCommands() {
 func (m *Manager) handleCommand(msg string) {
 	var cmd Command
 	if err := json.Unmarshal([]byte(msg), &cmd); err != nil {
-		log.Printf("Failed to parse command: %v", err)
+		slog.Error("failed to parse command", "error", err)
 		m.logger.LogTerminalError("", "", "PARSE_ERROR", "Failed to parse command message", err)
 		return
 	}
@@ -78,7 +78,7 @@ func (m *Manager) handleCommand(msg string) {
 	if cmd.Command == "" {
 		if cmd.ResponseQueue != "" {
 			if err := queue.Send(cmd.ResponseQueue, "Connected"); err != nil {
-				log.Printf("Failed to send connection confirmation: %v", err)
+				slog.Warn("failed to send connection confirmation", "queue", cmd.ResponseQueue, "error", err)
 				m.logger.LogQueueOperation("send_connection_confirmation", cmd.ResponseQueue, false, map[string]interface{}{
 					"error": err.Error(),
 				})
@@ -103,14 +103,14 @@ func (m *Manager) handleCommand(msg string) {
 
 	if cmd.ResponseQueue != "" {
 		if err := queue.Send(cmd.ResponseQueue, response); err != nil {
-			log.Printf("Failed to send response: %v", err)
+			slog.Warn("failed to send response", "queue", cmd.ResponseQueue, "error", err)
 			m.logger.LogQueueOperation("send_response", cmd.ResponseQueue, false, map[string]interface{}{
 				"user_id": cmd.UserID,
 				"error":   err.Error(),
 			})
 		} else {
 			m.logger.LogQueueOperation("send_response", cmd.ResponseQueue, true, map[string]interface{}{
-				"user_id":        cmd.UserID,
+				"user_id":         cmd.UserID,
 				"response_length": len(response),
 			})
 		}
@@ -141,7 +141,7 @@ func (m *Manager) executeCommand(cmd Command) string {
 	duration := time.Since(startTime)
 
 	if err != nil {
-		log.Printf("Failed to execute command: %v", err)
+		slog.Warn("failed to execute command", "command", cmd.Command, "error", err)
 		errorMsg := fmt.Sprintf("Error executing command: %v", err)
 		m.logger.LogCommandExecution(cmd.UserID, cmd.Command, duration, false, len(errorMsg), map[string]interface{}{
 			"error": err.Error(),
@@ -159,7 +159,7 @@ func (m *Manager) executeCommand(cmd Command) string {
 }
 
 func (m *Manager) Shutdown() {
-	log.Println("Shutting down terminal manager...")
+	slog.Info("shutting down terminal manager")
 	m.logger.LogServiceLifecycle("shutting_down", map[string]interface{}{
 		"service": "sirius-terminal",
 	})

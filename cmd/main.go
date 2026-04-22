@@ -1,22 +1,25 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/SiriusScan/app-terminal/internal/terminal"
+	"github.com/SiriusScan/go-api/sirius/slogger"
 )
 
 func main() {
-	fmt.Println("Terminal service is running...")
+	slogger.Init()
+
+	slog.Info("terminal service starting")
 
 	// Create and initialize terminal manager
 	manager, err := terminal.NewManager()
 	if err != nil {
-		log.Fatalf("Failed to create terminal manager: %v", err)
+		slog.Error("failed to create terminal manager", "error", err)
+		os.Exit(1)
 	}
 
 	// Start listening for terminal commands
@@ -28,5 +31,5 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 
-	log.Println("Shutting down terminal service...")
+	slog.Info("shutting down terminal service")
 }

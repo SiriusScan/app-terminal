@@ -2,22 +2,22 @@ package queue
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 
 	"github.com/streadway/amqp"
 )
 
 func Send(queue string, message string) error {
-	log.Printf("Sending message to queue %s: %s", queue, message)
+	slog.Debug("sending message to queue", "queue", queue)
 	conn, err := amqp.Dial("amqp://guest:guest@sirius-rabbitmq:5672/")
 	if err != nil {
-		return fmt.Errorf("failed to connect to RabbitMQ: %v", err)
+		return fmt.Errorf("failed to connect to RabbitMQ: %w", err)
 	}
 	defer conn.Close()
 
 	ch, err := conn.Channel()
 	if err != nil {
-		return fmt.Errorf("failed to open channel: %v", err)
+		return fmt.Errorf("failed to open channel: %w", err)
 	}
 	defer ch.Close()
 
@@ -31,7 +31,7 @@ func Send(queue string, message string) error {
 		nil,   // arguments
 	)
 	if err != nil {
-		return fmt.Errorf("failed to declare queue: %v", err)
+		return fmt.Errorf("failed to declare queue: %w", err)
 	}
 
 	err = ch.Publish(
@@ -45,24 +45,24 @@ func Send(queue string, message string) error {
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("failed to publish message: %v", err)
+		return fmt.Errorf("failed to publish message: %w", err)
 	}
 
-	log.Printf("Message sent successfully to queue %s", queue)
+	slog.Debug("message sent successfully", "queue", queue)
 	return nil
 }
 
 func Listen(queue string, handler func(string)) {
 	conn, err := amqp.Dial("amqp://guest:guest@sirius-rabbitmq:5672/")
 	if err != nil {
-		log.Printf("Failed to connect to RabbitMQ: %v", err)
+		slog.Error("failed to connect to RabbitMQ", "error", err)
 		return
 	}
 	defer conn.Close()
 
 	ch, err := conn.Channel()
 	if err != nil {
-		log.Printf("Failed to open channel: %v", err)
+		slog.Error("failed to open channel", "error", err)
 		return
 	}
 	defer ch.Close()
@@ -77,11 +77,11 @@ func Listen(queue string, handler func(string)) {
 		nil,   // arguments
 	)
 	if err != nil {
-		log.Printf("Failed to declare queue: %v", err)
+		slog.Error("failed to declare queue", "queue", queue, "error", err)
 		return
 	}
 
-	log.Printf("Listening on queue: %s", queue)
+	slog.Info("listening on queue", "queue", queue)
 
 	msgs, err := ch.Consume(
 		q.Name, // queue
@@ -93,7 +93,7 @@ func Listen(queue string, handler func(string)) {
 		nil,    // args
 	)
 	if err != nil {
-		log.Printf("Failed to register consumer: %v", err)
+		slog.Error("failed to register consumer", "queue", queue, "error", err)
 		return
 	}
 
@@ -101,11 +101,11 @@ func Listen(queue string, handler func(string)) {
 
 	go func() {
 		for d := range msgs {
-			log.Printf("Received message: %s", d.Body)
+			slog.Debug("received message", "queue", queue, "size", len(d.Body))
 			handler(string(d.Body))
 		}
 	}()
 
-	log.Printf("Queue consumer started. Waiting for messages...")
+	slog.Info("queue consumer started, waiting for messages", "queue", queue)
 	<-forever
 }
