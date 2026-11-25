@@ -1,11 +1,38 @@
 package terminal
 
 import (
-	"bytes"
 	"fmt"
 	"os/exec"
 	"strings"
 )
+
+const (
+	maxOutputBytes        = 64 * 1024
+	outputTruncatedMarker = "\n[output truncated]\n"
+)
+
+// boundedOutput keeps the start of a stream and continues draining it after the limit.
+type boundedOutput struct {
+	data      [maxOutputBytes]byte
+	used      int
+	truncated bool
+}
+
+func (b *boundedOutput) Write(p []byte) (int, error) {
+	n := copy(b.data[b.used:], p)
+	b.used += n
+	b.truncated = b.truncated || n < len(p)
+	return len(p), nil
+}
+
+func (b *boundedOutput) String() string {
+	output := string(b.data[:b.used])
+	if b.truncated {
+		// The byte limit can split a UTF-8 sequence.
+		return strings.ToValidUTF8(output, "") + outputTruncatedMarker
+	}
+	return output
+}
 
 type PowerShell struct {
 	cmd *exec.Cmd
@@ -39,13 +66,13 @@ func (p *PowerShell) Execute(command string) (string, error) {
 
 	cmd := exec.Command("pwsh", args...)
 
-	var stdout, stderr bytes.Buffer
+	var stdout, stderr boundedOutput
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
 	if err != nil {
-		return stderr.String(), fmt.Errorf("command failed: %v: %s", err, stderr.String())
+		return stderr.String(), fmt.Errorf("command failed: %w", err)
 	}
 
 	// Process the output

@@ -30,33 +30,27 @@ func (lc *LoggingClient) LogTerminalEvent(eventType, message string, metadata ma
 }
 
 // LogCommandExecution logs the execution of a terminal command
-func (lc *LoggingClient) LogCommandExecution(userID, command string, duration time.Duration, success bool, outputLength int, metadata map[string]interface{}) {
-	if metadata == nil {
-		metadata = make(map[string]interface{})
+func (lc *LoggingClient) LogCommandExecution(userID string, duration time.Duration, success bool, outputLength int, formatted bool) {
+	metadata := map[string]interface{}{
+		"user_id":           userID,
+		"duration_ms":       duration.Milliseconds(),
+		"success":           success,
+		"output_length":     outputLength,
+		"formatted_command": formatted,
 	}
-	metadata["user_id"] = userID
-	metadata["command"] = command
-	metadata["duration_ms"] = duration.Milliseconds()
-	metadata["success"] = success
-	metadata["output_length"] = outputLength
 	
 	level := logging.LogLevelInfo
 	if !success {
 		level = logging.LogLevelError
 	}
 	
-	message := fmt.Sprintf("Command execution %s: %s", messageFromSuccess(success), command)
+	message := fmt.Sprintf("Command execution %s", messageFromSuccess(success))
 	logging.Log("sirius-terminal", "command-execution", level, message, metadata, map[string]interface{}{"type": "performance_metric"})
 }
 
 // LogTerminalError logs an error related to terminal operations
-func (lc *LoggingClient) LogTerminalError(userID, command, errorCode, message string, err error) {
-	metadata := map[string]interface{}{
-		"user_id":    userID,
-		"command":    command,
-		"error_code": errorCode,
-		"details":    err.Error(),
-	}
+func (lc *LoggingClient) LogTerminalError(errorCode, message string) {
+	metadata := map[string]interface{}{"error_code": errorCode}
 	logging.Log("sirius-terminal", "terminal-manager", logging.LogLevelError, message, metadata, map[string]interface{}{"type": "error"})
 }
 
@@ -77,12 +71,11 @@ func (lc *LoggingClient) LogPowerShellInitialization(success bool, metadata map[
 }
 
 // LogQueueOperation logs queue-related operations
-func (lc *LoggingClient) LogQueueOperation(operation, queueName string, success bool, metadata map[string]interface{}) {
+func (lc *LoggingClient) LogQueueOperation(operation string, success bool, metadata map[string]interface{}) {
 	if metadata == nil {
 		metadata = make(map[string]interface{})
 	}
 	metadata["operation"] = operation
-	metadata["queue_name"] = queueName
 	metadata["success"] = success
 	
 	level := logging.LogLevelInfo
@@ -90,7 +83,7 @@ func (lc *LoggingClient) LogQueueOperation(operation, queueName string, success 
 		level = logging.LogLevelError
 	}
 	
-	message := fmt.Sprintf("Queue operation %s: %s on %s", messageFromSuccess(success), operation, queueName)
+	message := fmt.Sprintf("Queue operation %s: %s", operation, messageFromSuccess(success))
 	logging.Log("sirius-terminal", "queue-operation", level, message, metadata, map[string]interface{}{"type": "system_event"})
 }
 

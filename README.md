@@ -77,6 +77,10 @@ version: // Show terminal version
    - Returns response via queue
 5. Frontend displays formatted response
 
+The worker retains up to 64 KiB each from standard output and standard error.
+It appends `[output truncated]` when the stream returned in the reply exceeds that
+limit. Command text and subprocess output are excluded from worker service logs.
+
 ## Configuration
 
 ### Frontend Terminal Settings
