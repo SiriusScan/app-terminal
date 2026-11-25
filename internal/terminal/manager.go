@@ -69,8 +69,8 @@ func (m *Manager) ListenForCommands() {
 func (m *Manager) handleCommand(msg string) {
 	var cmd Command
 	if err := json.Unmarshal([]byte(msg), &cmd); err != nil {
-		slog.Error("failed to parse command", "error", err)
-		m.logger.LogTerminalError("", "", "PARSE_ERROR", "Failed to parse command message", err)
+		slog.Error("failed to parse command")
+		m.logger.LogTerminalError("PARSE_ERROR", "Failed to parse command message")
 		return
 	}
 
@@ -78,38 +78,29 @@ func (m *Manager) handleCommand(msg string) {
 	if cmd.Command == "" {
 		if cmd.ResponseQueue != "" {
 			if err := queue.Send(cmd.ResponseQueue, "Connected"); err != nil {
-				slog.Warn("failed to send connection confirmation", "queue", cmd.ResponseQueue, "error", err)
-				m.logger.LogQueueOperation("send_connection_confirmation", cmd.ResponseQueue, false, map[string]interface{}{
-					"error": err.Error(),
-				})
+				slog.Warn("failed to send connection confirmation")
+				m.logger.LogQueueOperation("send_connection_confirmation", false, nil)
 			} else {
-				m.logger.LogQueueOperation("send_connection_confirmation", cmd.ResponseQueue, true, map[string]interface{}{
-					"message": "Connected",
-				})
+				m.logger.LogQueueOperation("send_connection_confirmation", true, nil)
 			}
 		}
 		return
 	}
 
-	// Log command received
-	m.logger.LogTerminalEvent("command_received", fmt.Sprintf("Command received from user %s", cmd.UserID), map[string]interface{}{
-		"user_id":        cmd.UserID,
-		"command":        cmd.Command,
-		"response_queue": cmd.ResponseQueue,
-		"timestamp":      cmd.Timestamp,
+	m.logger.LogTerminalEvent("command_received", "Command received", map[string]interface{}{
+		"user_id": cmd.UserID,
 	})
 
 	response := m.executeCommand(cmd)
 
 	if cmd.ResponseQueue != "" {
 		if err := queue.Send(cmd.ResponseQueue, response); err != nil {
-			slog.Warn("failed to send response", "queue", cmd.ResponseQueue, "error", err)
-			m.logger.LogQueueOperation("send_response", cmd.ResponseQueue, false, map[string]interface{}{
+			slog.Warn("failed to send response")
+			m.logger.LogQueueOperation("send_response", false, map[string]interface{}{
 				"user_id": cmd.UserID,
-				"error":   err.Error(),
 			})
 		} else {
-			m.logger.LogQueueOperation("send_response", cmd.ResponseQueue, true, map[string]interface{}{
+			m.logger.LogQueueOperation("send_response", true, map[string]interface{}{
 				"user_id":         cmd.UserID,
 				"response_length": len(response),
 			})
@@ -125,7 +116,7 @@ func (m *Manager) executeCommand(cmd Command) string {
 
 	if m.ps == nil {
 		errorMsg := "Error: PowerShell session not initialized"
-		m.logger.LogTerminalError(cmd.UserID, cmd.Command, "POWERSHELL_NOT_INITIALIZED", "PowerShell session not initialized", fmt.Errorf("PowerShell session is nil"))
+		m.logger.LogTerminalError("POWERSHELL_NOT_INITIALIZED", "PowerShell session not initialized")
 		return errorMsg
 	}
 
@@ -141,19 +132,13 @@ func (m *Manager) executeCommand(cmd Command) string {
 	duration := time.Since(startTime)
 
 	if err != nil {
-		slog.Warn("failed to execute command", "command", cmd.Command, "error", err)
-		errorMsg := fmt.Sprintf("Error executing command: %v", err)
-		m.logger.LogCommandExecution(cmd.UserID, cmd.Command, duration, false, len(errorMsg), map[string]interface{}{
-			"error": err.Error(),
-		})
-		return errorMsg
+		slog.Warn("failed to execute command")
+		response := fmt.Sprintf("Error executing command: %v: %s", err, output)
+		m.logger.LogCommandExecution(cmd.UserID, duration, false, len(output), command != cmd.Command)
+		return response
 	}
 
-	// Log successful command execution
-	m.logger.LogCommandExecution(cmd.UserID, cmd.Command, duration, true, len(output), map[string]interface{}{
-		"formatted_command": command != cmd.Command,
-		"output_length":     len(output),
-	})
+	m.logger.LogCommandExecution(cmd.UserID, duration, true, len(output), command != cmd.Command)
 
 	return output
 }
