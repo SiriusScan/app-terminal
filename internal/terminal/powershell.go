@@ -7,9 +7,7 @@ import (
 	"strings"
 )
 
-type PowerShell struct {
-	cmd *exec.Cmd
-}
+type PowerShell struct{}
 
 func NewPowerShell() (*PowerShell, error) {
 	// Test PowerShell availability

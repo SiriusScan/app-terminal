@@ -2,35 +2,71 @@ name: Go Submodule CI - app-terminal
 
 on:
   push:
-    branches: [ main ] # Or your default branch
+    branches: [main]
   pull_request:
-    branches: [ main ] # Or your default branch
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  GOWORK: 'off'
+  GOFLAGS: '-mod=readonly'
 
 jobs:
   test-and-lint:
     name: Test & Lint
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app-terminal
     steps:
-      - name: Checkout code
+      - name: Checkout app-terminal
         uses: actions/checkout@v4
+        with:
+          path: app-terminal
+          persist-credentials: false
+
+      - name: Checkout go-api
+        uses: actions/checkout@v4
+        with:
+          repository: SiriusScan/go-api
+          # Match GO_API_COMMIT_SHA in Sirius/sirius-engine/Dockerfile.
+          ref: fe05fc09c64655246352e924c8858cc4e1e9da35
+          path: go-api
+          persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version: '1.20' # From go.mod
-          cache: true
+          go-version-file: app-terminal/go.mod
+          cache-dependency-path: app-terminal/go.sum
 
-      - name: Install Dependencies
-        run: go mod download
+      - name: Install dependencies and report pins
+        run: |
+          go version
+          printf 'go-api revision: %s\n' "$(git -C ../go-api rev-parse HEAD)"
+          go list -m -f '{{.Path}} => {{.Replace.Dir}}' github.com/SiriusScan/go-api
+          go mod download
+          git diff --exit-code -- go.mod go.sum
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.54.2  # Using a version known to work with Go 1.20
+          version: v1.64.8
           args: --timeout=5m
+          working-directory: app-terminal
 
       - name: Test
-        run: go test -v -race ./... # Assuming standard tests exist
+        run: go test -v -race ./...
+
+      - name: Build Linux terminal
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+        run: |
+          go build -ldflags="-w -s" -o "$RUNNER_TEMP/app-terminal" ./cmd
+          git diff --exit-code -- go.mod go.sum
 
       - name: Send repository_dispatch to Sirius main repo
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -39,4 +75,4 @@ jobs:
           token: ${{ secrets.MAIN_REPO_ACCESS_TOKEN }}
           repository: SiriusScan/Sirius
           event-type: submodule-update
-          client-payload: '{ "submodule": "${{ github.repository }}", "commit_sha": "${{ github.sha }}", "ref": "${{ github.ref }}" }' 
+          client-payload: '{ "submodule": "${{ github.repository }}", "commit_sha": "${{ github.sha }}", "ref": "${{ github.ref }}", "engine_promotion": "source-pin-v1" }'
