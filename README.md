@@ -128,9 +128,15 @@ $OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8
 ### Prerequisites
 
 - Node.js 16+
-- Go 1.19+
+- The Go toolchain declared in `go.mod`
 - PowerShell Core (pwsh)
 - RabbitMQ
+
+### Go SDK checkout
+
+Place `app-terminal` and `go-api` in sibling directories so the module replacement at `../go-api` resolves. The [CI workflow](.github/workflows/ci.yml) pins the SDK checkout to the revision used by [the Sirius engine builder](https://github.com/SiriusScan/Sirius/blob/main/sirius-engine/Dockerfile). When the SDK changes, align the workflow pin with the engine's `GO_API_COMMIT_SHA` and record the corresponding SDK release in `go.mod`.
+
+CI reads the Go toolchain from `go.mod`, checks the dependency files, lints, runs the race tests, and builds the Linux binary with CGO disabled. A successful push to `main` sends the tested terminal SHA to Sirius for a reviewed engine pin update.
 
 ### Local Setup
 
